@@ -135,10 +135,22 @@ claude mcp add --transport http --scope user openseo https://seo.momentumcag.com
   --header "CF-Access-Client-Secret: <secret>"
 ```
 
-Create the token under **Zero Trust → Access → Service Auth**, then add a
-policy on the application with action **Service Auth** and a
-*Service Token* rule naming it. Never swap this for an Access bypass on
-`/mcp` — see the warning above.
+Setup is **two** steps, and the second is easy to miss:
+
+1. **Zero Trust → Access → Service Auth** — create the token. This only makes
+   the token exist; it grants nothing.
+2. On the `seo.momentumcag.com` application, add a **second** policy (keep the
+   human one) with **Action: Service Auth** — not Allow — and a
+   *Service Token* rule naming the token.
+
+Without step 2, Access ignores the headers entirely and still redirects to the
+browser login. The tell is in Access's own redirect: decode the `meta` JWT from
+the `Location` header and look for `service_token_status: false` and
+`service_token_id: null`.
+
+Verified working: `200` with the headers, `302` without.
+
+Never swap this for an Access bypass on `/mcp` — see the warning above.
 
 Or skip Access entirely over the SSH tunnel:
 `http://localhost:3001/mcp`.
