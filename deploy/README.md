@@ -3,7 +3,7 @@
 Self-hosted OpenSEO, built from this fork, behind the existing cloudflared
 tunnel with Cloudflare Access as the auth gate.
 
-- **Public URL:** https://seo.momentumcag.com
+- **Public URL:** https://seo.momentumcag.com — **currently PARKED (403)**, see below
 - **Host:** `mcag-vps` (Hostinger, 2 vCPU / 7 GiB)
 - **Checkout:** `/root/open-seo`
 - **Compose project:** `openseo` (separate from the crew stack's `deploy`)
@@ -31,6 +31,40 @@ skips the tunnel. Two rules follow:
    The tunnel alone is not authentication.
 
 Anyone who reaches the app can spend your DataForSEO balance.
+
+### Current state: the hostname is parked
+
+DNS and tunnel ingress for `seo.momentumcag.com` exist, but the ingress rule
+serves `http_status:403` instead of forwarding to the app, because **no Access
+application protects it yet**. The tunnel is not authentication.
+
+Reach the app in the meantime over SSH, which needs no Access:
+
+```sh
+ssh -N -L 3001:127.0.0.1:3001 mcag-vps
+# then open http://localhost:3001
+```
+
+To go live, after creating the Access application in Cloudflare Zero Trust
+(Access → Applications → Self-hosted, domain `seo.momentumcag.com`, policy
+allowing your emails):
+
+```sh
+ssh mcag-vps "sed -i 's|service: http_status:403|service: http://localhost:3001|' /etc/cloudflared/config.yml"
+ssh mcag-vps "cloudflared --config /etc/cloudflared/config.yml tunnel ingress validate"
+ssh mcag-vps "systemctl restart cloudflared"
+```
+
+Then confirm an unauthenticated request is intercepted by Access rather than
+reaching the app — it should redirect to a Cloudflare login, never return the
+app's HTML:
+
+```sh
+curl -sI https://seo.momentumcag.com/ | head -3
+```
+
+`cloudflared` has no `reload`; a restart briefly drops
+`crew.momentumcag.com` too (about a second).
 
 ## Deploying
 
