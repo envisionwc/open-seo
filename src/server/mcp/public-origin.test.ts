@@ -1,7 +1,41 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { getPublicOrigin, requestWithPublicOrigin } from "./public-origin";
 
 describe("getPublicOrigin", () => {
+  afterEach(() => {
+    delete process.env.PUBLIC_ORIGIN;
+  });
+
+  it("uses the forwarded protocol with the Host header when the proxy sends no x-forwarded-host", () => {
+    // Cloudflare Tunnel's exact shape: it forwards the scheme and preserves
+    // Host, but sends no x-forwarded-host. Requiring both yielded an http://
+    // origin, which Google rejects as an OAuth redirect_uri.
+    const request = new Request("http://seo.example.com/api/gsc/oauth/callback", {
+      headers: { "x-forwarded-proto": "https" },
+    });
+
+    expect(getPublicOrigin(request)).toBe("https://seo.example.com");
+  });
+
+  it("prefers an explicit PUBLIC_ORIGIN over request and proxy headers", () => {
+    process.env.PUBLIC_ORIGIN = "https://seo.example.com";
+    const request = new Request("http://localhost:3001/api/gsc/oauth/callback", {
+      headers: {
+        "x-forwarded-proto": "https",
+        "x-forwarded-host": "wrong.test",
+      },
+    });
+
+    expect(getPublicOrigin(request)).toBe("https://seo.example.com");
+  });
+
+  it("ignores a malformed PUBLIC_ORIGIN instead of failing resolution", () => {
+    process.env.PUBLIC_ORIGIN = "not a url";
+    const request = new Request("http://localhost:3102/api/oauth/consent");
+
+    expect(getPublicOrigin(request)).toBe("http://localhost:3102");
+  });
+
   it("uses the forwarded public protocol and host for tunneled requests", () => {
     const request = new Request("http://localhost:3102/api/oauth/consent", {
       headers: {

@@ -40,6 +40,10 @@ services:
       # vite preview rejects Host headers it does not know; this must equal the
       # public hostname served by the tunnel or every request 403s.
       - ALLOWED_HOST=${ALLOWED_HOST:-seo.momentumcag.com}
+      # The public origin the app should advertise. Cloudflare Tunnel sends
+      # x-forwarded-proto but NOT x-forwarded-host, so origin inference lands
+      # on http:// — which Google rejects as an OAuth redirect_uri. State it.
+      - PUBLIC_ORIGIN=${PUBLIC_ORIGIN:-https://seo.momentumcag.com}
       - AUTH_MODE=local_noauth
       - DATAFORSEO_API_KEY=${DATAFORSEO_API_KEY}
       - OPENSEO_TELEMETRY_DISABLED=${OPENSEO_TELEMETRY_DISABLED:-1}
