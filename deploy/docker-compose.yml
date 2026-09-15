@@ -1,0 +1,86 @@
+# OpenSEO self-host on the MCAG Hostinger VPS.
+#
+# Differences from the upstream compose.yaml at the repo root:
+#   - builds from THIS fork's source (Dockerfile.selfhost) instead of pulling
+#     the published GHCR image, so local changes actually ship;
+#   - runs in its own compose project + bridge network, hard-isolated from the
+#     crew stack (project "deploy", network crew_net) that shares this host;
+#   - pins memory/CPU, because the container-start vite SSR build asks Node for
+#     a 4 GiB heap (.npmrc node-options) on a 2-core / 7 GiB box.
+#
+# The app runs with AUTH_MODE=local_noauth (no login, auto-admin as
+# admin@localhost). It is therefore bound to 127.0.0.1 ONLY and reached through
+# the cloudflared tunnel with Cloudflare Access in front. Never publish this
+# port on 0.0.0.0.
+
+# Explicit project name: the compose file lives in a directory called
+# "deploy", which is ALSO the crew stack's project name on this host.
+# Without this, the two stacks would share a project namespace.
+name: openseo
+
+services:
+  open-seo:
+    build:
+      context: ..
+      dockerfile: Dockerfile.selfhost
+    image: open-seo:local
+    container_name: open-seo
+    restart: unless-stopped
+
+    # Forward every .env value (upstream's note: values absent from the
+    # explicit `environment:` list below silently never reach the app).
+    env_file:
+      - .env
+
+    environment:
+      # Required for Docker self-hosting: exposes compose env to the
+      # cloudflare:workers bindings the app runs on.
+      - CLOUDFLARE_INCLUDE_PROCESS_ENV=true
+      - PORT=${PORT:-3001}
+      # vite preview rejects Host headers it does not know; this must equal the
+      # public hostname served by the tunnel or every request 403s.
+      - ALLOWED_HOST=${ALLOWED_HOST:-seo.momentumcag.com}
+      - AUTH_MODE=local_noauth
+      - DATAFORSEO_API_KEY=${DATAFORSEO_API_KEY}
+      - OPENSEO_TELEMETRY_DISABLED=${OPENSEO_TELEMETRY_DISABLED:-1}
+      - DO_NOT_TRACK=${DO_NOT_TRACK:-1}
+      # Optional: SAM, the in-app SEO agent.
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
+      - OPENROUTER_MODEL=${OPENROUTER_MODEL:-}
+      # Optional: Google Search Console (all three together).
+      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID:-}
+      - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET:-}
+      - BETTER_AUTH_SECRET=${BETTER_AUTH_SECRET:-}
+      - VITE_SHOW_DEVTOOLS=false
+
+    # Loopback only. Cloudflare Access is the auth boundary; the app has none.
+    ports:
+      - "127.0.0.1:${PORT:-3001}:${PORT:-3001}"
+
+    volumes:
+      # Local D1/SQLite state. Losing this loses projects and crawl history.
+      - open_seo_data:/app/.wrangler
+
+    networks:
+      - openseo_net
+
+    # The build wants a 4 GiB heap; 5g leaves headroom without starving the
+    # host. Raise only after checking what else is running.
+    mem_limit: 5g
+    cpus: 1.5
+
+    security_opt:
+      - no-new-privileges:true
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  open_seo_data:
+
+networks:
+  openseo_net:
+    driver: bridge
