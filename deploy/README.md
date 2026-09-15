@@ -73,6 +73,76 @@ ssh mcag-vps "sed -i 's|service: http://localhost:3001|service: http_status:403|
 ssh mcag-vps "systemctl restart cloudflared"
 ```
 
+## Integrations
+
+### Already on
+
+- **DataForSEO** — keyword research, rank tracking, backlinks, site audits,
+  SERP, AI visibility, Lighthouse. Key is `base64("login:API-password")`.
+
+### The origin gotcha that blocks both Google integrations
+
+The Google OAuth `redirect_uri` is built from the app's computed public origin.
+Cloudflare Tunnel sends `x-forwarded-proto: https` but **no**
+`x-forwarded-host`, so upstream's resolution fell back to an `http://` origin —
+and Google refuses `http://` redirect URIs for non-localhost domains.
+
+Fixed in this fork (`src/server/mcp/public-origin.ts`): an explicit
+`PUBLIC_ORIGIN` wins, otherwise the Host header is used when a forwarded
+protocol is present. `PUBLIC_ORIGIN=https://seo.momentumcag.com` is set in
+`deploy/.env`. **Do not remove it** — the Google flows break silently, showing
+only `redirect_uri_mismatch` at Google.
+
+### Google Search Console
+
+1. Google Cloud Console → create/pick a project.
+2. Enable the **Google Search Console API**.
+3. **OAuth consent screen** → External; add your Google account under
+   **Test users** (otherwise sign-in fails with `access_denied`).
+4. **Credentials → Create OAuth client ID → Web application**, redirect URI:
+   `https://seo.momentumcag.com/api/gsc/oauth/callback`
+5. Put `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` in `deploy/.env`.
+   `BETTER_AUTH_SECRET` is already set (it encrypts the stored tokens at rest).
+6. `./deploy/deploy.sh --no-build`, then **Integrations → Connect with Google**.
+
+### Google Analytics 4
+
+Reuses the same Google Cloud project and OAuth client.
+
+1. Enable **Google Analytics Admin API** and **Google Analytics Data API**.
+2. Add a second redirect URI to the same OAuth client:
+   `https://seo.momentumcag.com/api/ga4/oauth/callback`
+   (keep the GSC one).
+3. No new env vars. Connect under **Project settings → Analytics**.
+
+GA4 needs its own consent grant even though the client is shared.
+
+### SAM, the in-app agent
+
+`OPENROUTER_API_KEY` (plus optional `OPENROUTER_MODEL`) in `deploy/.env`, then
+redeploy. **OpenRouter only** — `src/server/lib/openrouter.ts` builds the model
+with `createOpenRouter()` and exposes no base-URL override, so Ollama or any
+other OpenAI-compatible endpoint would need a code change.
+
+### MCP for agents
+
+The server is at `https://seo.momentumcag.com/mcp`, behind Access like
+everything else. Reach it with an Access **service token**:
+
+```sh
+claude mcp add --transport http --scope user openseo https://seo.momentumcag.com/mcp \
+  --header "CF-Access-Client-Id: <id>.access" \
+  --header "CF-Access-Client-Secret: <secret>"
+```
+
+Create the token under **Zero Trust → Access → Service Auth**, then add a
+policy on the application with action **Service Auth** and a
+*Service Token* rule naming it. Never swap this for an Access bypass on
+`/mcp` — see the warning above.
+
+Or skip Access entirely over the SSH tunnel:
+`http://localhost:3001/mcp`.
+
 ## Deploying
 
 ```sh
