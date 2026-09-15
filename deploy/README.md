@@ -105,6 +105,31 @@ only `redirect_uri_mismatch` at Google.
    `BETTER_AUTH_SECRET` is already set (it encrypts the stored tokens at rest).
 6. `./deploy/deploy.sh --no-build`, then **Integrations → Connect with Google**.
 
+### Do not leave the Google app in "Testing"
+
+Google's OAuth docs: projects in **Testing** with an **External** user type get
+refresh tokens that **expire after 7 days** unless only basic profile scopes are
+requested. OpenSEO asks for `webmasters.readonly` and `analytics.readonly`, so
+the exemption does not apply — every Google connection silently dies weekly.
+
+Note `account.refresh_token_expires_at` is `null` in the database even in
+Testing: Google enforces that expiry server-side without declaring it, so the
+DB cannot tell you which mode you are in. Check
+**Google Auth Platform → Audience**.
+
+Options, in order of preference:
+
+- **Internal** — no verification, no 7-day expiry, no tester list. Only works
+  if every authorizing account is in the same Workspace org as the Cloud
+  project. Not usable here: accounts from two different domains
+  (`momentumcag.com`, `envisionwc.com`) authorize this instance.
+- **Publish to Production, unverified** — clears the 7-day expiry. Shows a
+  "Google hasn't verified this app" interstitial you click through, and caps at
+  100 users. Google explicitly permits this: apps "intended for personal use by
+  the developer or a small group of personally known users do not require
+  verification." This is the right setting for this deployment.
+- Submitting for verification is unnecessary at this scale.
+
 ### Google Analytics 4
 
 Reuses the same Google Cloud project and OAuth client.
