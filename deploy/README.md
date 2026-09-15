@@ -3,7 +3,7 @@
 Self-hosted OpenSEO, built from this fork, behind the existing cloudflared
 tunnel with Cloudflare Access as the auth gate.
 
-- **Public URL:** https://seo.momentumcag.com — **currently PARKED (403)**, see below
+- **Public URL:** https://seo.momentumcag.com — **live**, behind Cloudflare Access
 - **Host:** `mcag-vps` (Hostinger, 2 vCPU / 7 GiB)
 - **Checkout:** `/root/open-seo`
 - **Compose project:** `openseo` (separate from the crew stack's `deploy`)
@@ -32,39 +32,46 @@ skips the tunnel. Two rules follow:
 
 Anyone who reaches the app can spend your DataForSEO balance.
 
-### Current state: the hostname is parked
+### Current state: live and gated
 
-DNS and tunnel ingress for `seo.momentumcag.com` exist, but the ingress rule
-serves `http_status:403` instead of forwarding to the app, because **no Access
-application protects it yet**. The tunnel is not authentication.
+`seo.momentumcag.com` forwards to the app, with a Cloudflare Access
+application (team `wispy-fire-1cac.cloudflareaccess.com`) in front.
 
-Reach the app in the meantime over SSH, which needs no Access:
+Verified 2026-09-15: an unauthenticated request to `/` **and** to `/mcp`
+returns `302` to the Access login with `auth_status: NONE` — Cloudflare
+intercepts at the edge and the request never reaches the tunnel. No app HTML
+is served to an unauthenticated caller.
+
+Re-run that check after any change to the tunnel, the Access app, or DNS:
 
 ```sh
-ssh -N -L 3001:127.0.0.1:3001 mcag-vps
-# then open http://localhost:3001
+curl -s -o /dev/null -w '%{http_code} %{redirect_url}\n' https://seo.momentumcag.com/
+# expect: 302 https://wispy-fire-1cac.cloudflareaccess.com/cdn-cgi/access/login/...
+# a 200 with app HTML means the gate is GONE — re-park the ingress immediately
 ```
 
-To go live, after creating the Access application in Cloudflare Zero Trust
-(Access → Applications → Self-hosted, domain `seo.momentumcag.com`, policy
-allowing your emails):
+There is also an SSH path that bypasses Access, for when you want the app
+without an Access session:
 
 ```sh
-ssh mcag-vps "sed -i 's|service: http_status:403|service: http://localhost:3001|' /etc/cloudflared/config.yml"
-ssh mcag-vps "cloudflared --config /etc/cloudflared/config.yml tunnel ingress validate"
+ssh -N -L 3001:127.0.0.1:3001 mcag-vps   # then http://localhost:3001
+```
+
+### Do not add an Access bypass for /mcp
+
+OpenSEO exposes an MCP server at `/mcp`. It is tempting to bypass Access there
+so agents can reach it, but in `local_noauth` mode that endpoint resolves a
+local admin with **no authentication of its own**
+(`src/server/mcp/transport.ts`, `resolveLocalNoAuthContext`). A bypass would be
+an unauthenticated, spend-capable hole. Use an Access **service token**, or
+reach it over the SSH tunnel.
+
+### To re-park the hostname
+
+```sh
+ssh mcag-vps "sed -i 's|service: http://localhost:3001|service: http_status:403|' /etc/cloudflared/config.yml"
 ssh mcag-vps "systemctl restart cloudflared"
 ```
-
-Then confirm an unauthenticated request is intercepted by Access rather than
-reaching the app — it should redirect to a Cloudflare login, never return the
-app's HTML:
-
-```sh
-curl -sI https://seo.momentumcag.com/ | head -3
-```
-
-`cloudflared` has no `reload`; a restart briefly drops
-`crew.momentumcag.com` too (about a second).
 
 ## Deploying
 
